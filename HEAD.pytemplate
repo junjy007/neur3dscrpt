@@ -1,0 +1,150 @@
+import bpy, bmesh
+from math import radians, cos, sin
+from bpy_extras.view3d_utils import location_3d_to_region_2d
+from mathutils import Vector, Quaternion
+import numpy as np
+import os
+
+def purge_orphans():
+    bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)
+    
+def clean_scene():
+    if bpy.context.active_object and bpy.context.active_object.mode == 'EDIT':
+        bpy.ops.object.editmode_toggle()
+        
+    for obj in bpy.data.objects:
+        obj.hide_set(False)
+        obj.hide_select = False
+        obj.hide_viewport = False
+        
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+    
+    collection_names = [col.name for col in bpy.data.collections]
+    for name in collection_names:
+        bpy.data.collections.remove(bpy.data.collections[name])
+    
+
+    # Clear default nodes
+    if bpy.context.scene.node_tree:
+        try:
+            nds = [n for n in bpy.context.scene.node_tree.nodes]
+            for n in nds:
+                bpy.context.scene.node_tree.nodes.remove(n)
+        except:
+            pass
+    
+    purge_orphans()
+    purge_orphans()
+    purge_orphans()
+    
+def set_render_nodes(depth_scale=0.1):
+    render = bpy.context.scene.render
+    render.engine = 'BLENDER_EEVEE'
+    render.image_settings.color_mode = 'RGBA' # ('RGB', 'RGBA', ...)
+    render.image_settings.color_depth = '8'
+    render.image_settings.file_format = 'PNG'
+    render.resolution_x = 128
+    render.resolution_y = 128
+    render.resolution_percentage = 100
+    render.film_transparent = True
+    
+    scene = bpy.context.scene
+    scene.use_nodes = True
+    scene.view_layers["ViewLayer"].use_pass_z = True
+    scene.view_layers["ViewLayer"].use_pass_normal = True
+    scene.view_layers["ViewLayer"].use_pass_diffuse_color = True
+    scene.view_layers["ViewLayer"].use_pass_object_index = True
+
+    nodes = bpy.context.scene.node_tree.nodes
+    links = bpy.context.scene.node_tree.links
+    
+    # Create input render layer node
+    render_layers = nodes.new('CompositorNodeRLayers')
+
+    # Create depth output nodes
+    depth_file_output = nodes.new(type="CompositorNodeOutputFile")
+    depth_file_output.label = 'Depth Output'
+    depth_file_output.base_path = ''
+    depth_file_output.file_slots[0].use_node_format = True
+    depth_file_output.format.file_format = 'PNG'
+    depth_file_output.format.color_depth = '8'
+    depth_file_output.format.color_mode = "BW"
+
+    # Remap as other types can not represent the full range of depth.
+    map = nodes.new(type="CompositorNodeMapValue")
+    # Size is chosen kind of arbitrarily, try out until you're satisfied with resulting depth map.
+    map.offset = [-0.7]
+    map.size = [depth_scale]
+    map.use_min = True
+    map.min = [0]
+
+    links.new(render_layers.outputs['Depth'], map.inputs[0])
+    links.new(map.outputs[0], depth_file_output.inputs[0])
+    
+    return (depth_file_output, )
+        
+def init_cam():
+    origin = bpy.data.objects.new("Empty", None)
+    origin.location = (0, 0, 0)
+    bpy.context.scene.collection.objects.link(origin)
+    
+    camera_data = bpy.data.cameras.new(name='Camera')
+    cam = bpy.data.objects.new('Camera', camera_data)
+    bpy.context.scene.collection.objects.link(cam)
+    bpy.context.scene.camera = cam
+    cam.data.lens = 35
+    cam.data.sensor_width = 32
+
+    cam_constraint = cam.constraints.new(type='TRACK_TO')
+    cam_constraint.track_axis = 'TRACK_NEGATIVE_Z'
+    cam_constraint.up_axis = 'UP_Y'
+    cam_constraint.target = origin
+    
+def set_cam_on_sphere(elevation_angle, rotation_angle, cam_dist=5):
+    rele = radians(elevation_angle)
+    rrot = radians(rotation_angle)
+    
+    cam_x = cam_dist * cos(rele) * cos(rrot)
+    cam_y = cam_dist * cos(rele) * sin(rrot)
+    cam_z = cam_dist * sin(rele)
+    cam = bpy.context.scene.objects['Camera']
+    cam.location = (cam_x, cam_y, cam_z)
+    print(cam_x, cam_y, cam_z)
+    
+def add_cube(objname='Cube'):
+    bm = bmesh.new()
+    # Create an empty mesh and the object.
+    mesh = bpy.data.meshes.new(objname+'_Mesh')
+    basic_cube = bpy.data.objects.new(objname, mesh)
+
+    # Construct the bmesh cube and assign it to the blender mesh.
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=1.0)
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    # Add the object into the scene.
+    bpy.context.collection.objects.link(basic_cube)
+    
+def add_sphere(objname='Sphere'):
+    bm = bmesh.new()
+    # Create an empty mesh and the object.
+    mesh = bpy.data.meshes.new(objname+'_Mesh')
+    basic_cube = bpy.data.objects.new(objname, mesh)
+
+    # Construct the bmesh cube and assign it to the blender mesh.
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=36, v_segments=12, radius=1)
+    bm.to_mesh(mesh)
+    bm.free()
+    
+    # Add the object into the scene.
+    bpy.context.collection.objects.link(basic_cube)
+
+
+if __name__ == "__main__":
+    clean_scene()
+    init_cam()
+    depth_file_output, = set_render_nodes()  
+    

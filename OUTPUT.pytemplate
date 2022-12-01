@@ -1,0 +1,16 @@
+    stepsize = 30
+    findex = 0
+    for ele in [30,]: #[-60, -30, 30, 60]:
+        s = stepsize if abs(ele) < 45 else stepsize * 2
+        for rot in np.arange(0, 360, s):
+            print(ele, rot)
+            set_cam_on_sphere(ele, rot)
+            render_file_path = fp + f'_{findex:03d}'
+            findex += 1
+            bpy.context.scene.render.filepath = render_file_path
+            depth_file_output.file_slots[0].path = render_file_path + "_depth"
+            # normal_file_output.file_slots[0].path = render_file_path + "_normal"
+            # albedo_file_output.file_slots[0].path = render_file_path + "_albedo"
+            # id_file_output.file_slots[0].path = render_file_path + "_id"
+
+            bpy.ops.render.render(write_still=True)  

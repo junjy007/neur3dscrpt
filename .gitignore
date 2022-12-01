@@ -1,0 +1,5 @@
+tmp*
+temp*
+*.gz
+backup/
+__pycache__
